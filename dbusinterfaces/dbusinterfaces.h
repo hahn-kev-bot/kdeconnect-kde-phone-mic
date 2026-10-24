@@ -19,6 +19,7 @@
 #include "generated/devicenotificationsinterface.h"
 #include "generated/devicesftpinterface.h"
 #include "generated/lockdeviceinterface.h"
+#include "generated/microphoneinterface.h"
 #include "generated/mprisremoteinterface.h"
 #include "generated/notificationinterface.h"
 #include "generated/remotecommandsinterface.h"
@@ -257,6 +258,22 @@ public:
     explicit ClipboardDbusInterface(const QString &deviceId, QObject *parent = nullptr);
 Q_SIGNALS:
     void autoShareDisabledChangedProxy(bool b);
+};
+
+class KDECONNECTDBUSINTERFACES_EXPORT MicrophoneDbusInterface : public OrgKdeKdeconnectDeviceMicrophoneInterface
+{
+    Q_OBJECT
+    // Workaround because qdbusxml2cpp is not generating NOTIFY for properties
+    Q_PROPERTY(bool streaming READ streaming NOTIFY streamingChangedProxy)
+    Q_PROPERTY(QString outputDevice READ outputDevice NOTIFY streamingChangedProxy)
+    Q_PROPERTY(int sampleRate READ sampleRate NOTIFY streamingChangedProxy)
+    Q_PROPERTY(qlonglong startedAt READ startedAt NOTIFY streamingChangedProxy)
+public:
+    explicit MicrophoneDbusInterface(const QString &deviceId, QObject *parent = nullptr);
+
+Q_SIGNALS:
+    void streamingChangedProxy(bool streaming);
+    void levelChangedProxy(double peak, double rms);
 };
 
 #endif

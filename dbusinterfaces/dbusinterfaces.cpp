@@ -199,4 +199,14 @@ ClipboardDbusInterface::ClipboardDbusInterface(const QString &deviceId, QObject 
     connect(this, &OrgKdeKdeconnectDeviceClipboardInterface::autoShareDisabledChanged, this, &ClipboardDbusInterface::autoShareDisabledChangedProxy);
 }
 
+MicrophoneDbusInterface::MicrophoneDbusInterface(const QString &deviceId, QObject *parent)
+    : OrgKdeKdeconnectDeviceMicrophoneInterface(DaemonDbusInterface::activatedService(),
+                                                QLatin1String("/modules/kdeconnect/devices/%1/microphone").arg(deviceId),
+                                                QDBusConnection::sessionBus(),
+                                                parent)
+{
+    connect(this, &OrgKdeKdeconnectDeviceMicrophoneInterface::streamingChanged, this, &MicrophoneDbusInterface::streamingChangedProxy);
+    connect(this, &OrgKdeKdeconnectDeviceMicrophoneInterface::levelChanged, this, &MicrophoneDbusInterface::levelChangedProxy);
+}
+
 #include "moc_dbusinterfaces.cpp"

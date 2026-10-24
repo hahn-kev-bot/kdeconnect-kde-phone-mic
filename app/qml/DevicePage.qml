@@ -28,6 +28,11 @@ Kirigami.ScrollablePage {
         device: root.currentDevice
     }
 
+    MicrophoneInfo {
+        id: microphoneInfo
+        device: root.currentDevice
+    }
+
     function openSettings()
     {
         for (let index = 0; index < pageStack.depth; ++index) {
@@ -106,40 +111,49 @@ Kirigami.ScrollablePage {
                 }
             }
 
-            delegate: QQC2.ItemDelegate {
-                id: pluginDelegate
-                text: Kirigami.MnemonicData.richTextLabel
-                Accessible.name: Kirigami.MnemonicData.plainTextLabel ?? modelData.name // fallback needed for KF < 6.12
-                Accessible.role: modelData.clickable ? Accessible.Button : Accessible.StaticText
-                icon.name: modelData.iconName
-                highlighted: false
-                icon.color: "transparent"
+            delegate: Column {
                 width: pluginsListView.width
-                enabled: true
-                hoverEnabled: modelData.clickable
-                focusPolicy: modelData.clickable ? Qt.StrongFocus : Qt.NoFocus
-                onClicked: {
-                    if (modelData.clickable) {
-                        modelData.onClick()
+
+                QQC2.ItemDelegate {
+                    id: pluginDelegate
+                    text: Kirigami.MnemonicData.richTextLabel
+                    Accessible.name: Kirigami.MnemonicData.plainTextLabel ?? modelData.name // fallback needed for KF < 6.12
+                    Accessible.role: modelData.clickable ? Accessible.Button : Accessible.StaticText
+                    icon.name: modelData.iconName
+                    highlighted: false
+                    icon.color: "transparent"
+                    width: pluginsListView.width
+                    enabled: true
+                    hoverEnabled: modelData.clickable
+                    focusPolicy: modelData.clickable ? Qt.StrongFocus : Qt.NoFocus
+                    onClicked: {
+                        if (modelData.clickable) {
+                            modelData.onClick()
+                        }
+                    }
+
+                    Kirigami.MnemonicData.enabled: modelData.clickable && visible
+                    Kirigami.MnemonicData.controlType: Kirigami.MnemonicData.MenuItem
+                    Kirigami.MnemonicData.label: modelData.name
+
+                    Shortcut {
+                        sequence: pluginDelegate.Kirigami.MnemonicData.sequence
+                        onActivated: clicked()
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        visible: !modelData.clickable
+                        enabled: visible
+                        acceptedButtons: Qt.AllButtons
+                        hoverEnabled: true
+                        preventStealing: true
                     }
                 }
 
-                Kirigami.MnemonicData.enabled: modelData.clickable && visible
-                Kirigami.MnemonicData.controlType: Kirigami.MnemonicData.MenuItem
-                Kirigami.MnemonicData.label: modelData.name
-
-                Shortcut {
-                    sequence: pluginDelegate.Kirigami.MnemonicData.sequence
-                    onActivated: clicked()
-                }
-
-                MouseArea {
-                    anchors.fill: parent
-                    visible: !modelData.clickable
-                    enabled: visible
-                    acceptedButtons: Qt.AllButtons
-                    hoverEnabled: true
-                    preventStealing: true
+                Loader {
+                    width: pluginsListView.width
+                    sourceComponent: modelData.extra
                 }
             }
         }
@@ -271,6 +285,20 @@ Kirigami.ScrollablePage {
                 name: connectivityInfo.displayString
                 iconNameOverride: connectivityInfo.iconName
                 hidden: !connectivityInfo.available
+                section: "info"
+                device: root.currentDevice
+            },
+            PluginItem {
+                readonly property Component traceComponent: Component {
+                    MicrophoneTrace {
+                        info: microphoneInfo
+                    }
+                }
+                pluginName: "microphone"
+                name: microphoneInfo.displayString
+                iconNameOverride: microphoneInfo.iconName
+                hidden: !microphoneInfo.available
+                extra: microphoneInfo.streaming ? traceComponent : null
                 section: "info"
                 device: root.currentDevice
             },

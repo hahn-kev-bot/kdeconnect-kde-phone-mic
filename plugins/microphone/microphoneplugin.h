@@ -7,6 +7,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QElapsedTimer>
 #include <QIODevice>
 #include <QObject>
 #include <QSharedPointer>
@@ -28,6 +29,10 @@ class MicrophonePlugin : public KdeConnectPlugin
 {
     Q_OBJECT
     Q_CLASSINFO("D-Bus Interface", "org.kde.kdeconnect.device.microphone")
+    Q_PROPERTY(bool streaming READ isStreaming NOTIFY streamingChanged)
+    Q_PROPERTY(QString outputDevice READ outputDevice NOTIFY streamingChanged)
+    Q_PROPERTY(int sampleRate READ sampleRate NOTIFY streamingChanged)
+    Q_PROPERTY(qlonglong startedAt READ startedAt NOTIFY streamingChanged)
 
 public:
     explicit MicrophonePlugin(QObject *parent, const QVariantList &args);
@@ -39,12 +44,27 @@ public:
     Q_SCRIPTABLE bool isStreaming() const;
     Q_SCRIPTABLE void stop();
 
+    QString outputDevice() const;
+    int sampleRate() const;
+
+    /**
+     * Milliseconds since the epoch at which the current stream started, 0 while idle
+     */
+    qlonglong startedAt() const;
+
 Q_SIGNALS:
     Q_SCRIPTABLE void streamingChanged(bool streaming);
+
+    /**
+     * Audio level of the samples played since the previous emission, both in 0..1.
+     * Emitted at most every 50 ms while streaming, and once more with zeros when the stream stops.
+     */
+    Q_SCRIPTABLE void levelChanged(double peak, double rms);
 
 private:
     void socketReadyRead();
     void drainPending();
+    void scanLevels(const char *data, qsizetype size);
     void stopStream();
 
     QSharedPointer<QIODevice> m_socket;
@@ -53,6 +73,17 @@ private:
     QTimer m_drainTimer;
     QByteArray m_pending;
     qsizetype m_primeBytes = 0;
+    qsizetype m_maxPendingBytes = 0;
+    qint64 m_droppedBytes = 0;
     bool m_primed = false;
     QString m_streamId;
+    QString m_outputDevice;
+    int m_sampleRate = 0;
+    qlonglong m_startedAt = 0;
+
+    QElapsedTimer m_levelTimer;
+    qsizetype m_levelSkip = 0;
+    double m_levelPeak = 0.0;
+    double m_levelSquares = 0.0;
+    qint64 m_levelSamples = 0;
 };

@@ -38,6 +38,8 @@ ecm_target_qml_sources(kdeconnect-app SOURCES
     qml/PluginItem.qml
     qml/BatteryInfo.qml
     qml/ConnectivityInfo.qml
+    qml/MicrophoneInfo.qml
+    qml/MicrophoneTrace.qml
     qml/DevicePage.qml
     qml/runcommand.qml
     qml/volume.qml

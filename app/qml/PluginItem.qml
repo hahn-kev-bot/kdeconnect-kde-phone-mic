@@ -23,6 +23,8 @@ QtObject
     property var section
     property bool hidden: false
     property bool clickable: section !== "info" && loaded
+    // Optional content shown below the row's text
+    property Component extra: null
 
     readonly property var checker: PluginChecker {
         id: checker

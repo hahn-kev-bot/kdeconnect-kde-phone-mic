@@ -50,6 +50,7 @@ geninterface(${PROJECT_SOURCE_DIR}/plugins/share/shareplugin.h generated/sharein
 geninterface(${PROJECT_SOURCE_DIR}/plugins/remotesystemvolume/remotesystemvolumeplugin.h generated/remotesystemvolumeinterface)
 geninterface(${PROJECT_SOURCE_DIR}/plugins/virtualmonitor/virtualmonitorplugin.h generated/virtualmonitorinterface)
 geninterface(${PROJECT_SOURCE_DIR}/plugins/clipboard/clipboardplugin.h generated/deviceclipboardinterface)
+geninterface(${PROJECT_SOURCE_DIR}/plugins/microphone/microphoneplugin.h generated/microphoneinterface)
 
 # System dbus interfaces
 if (UNIX AND NOT APPLE)
