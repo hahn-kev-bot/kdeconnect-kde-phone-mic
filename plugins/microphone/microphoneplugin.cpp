@@ -26,12 +26,12 @@
 K_PLUGIN_CLASS_WITH_JSON(MicrophonePlugin, "kdeconnect_microphone.json")
 
 // Microseconds of audio to keep buffered in the sink, and to accumulate before playback starts.
-static const qint64 SINK_BUFFER_DURATION = 80000;
-static const qint64 PRIME_DURATION = 30000;
+static const qint64 SINK_BUFFER_DURATION = 40000;
+static const qint64 PRIME_DURATION = 20000;
 static const int DRAIN_INTERVAL_MS = 10;
 // If the network delivers more than this ahead of playback (a burst after connecting, a Wi-Fi hiccup
 // catching up), drop the oldest audio so the delay never grows beyond it.
-static const qint64 MAX_PENDING_DURATION = 40000;
+static const qint64 MAX_PENDING_DURATION = 20000;
 static const qint64 LEVEL_INTERVAL_MS = 50;
 
 MicrophonePlugin::MicrophonePlugin(QObject *parent, const QVariantList &args)
