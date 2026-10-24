@@ -9,10 +9,10 @@
 #include "audiooutput.h"
 
 #include <QAudioFormat>
+#include <QAudioSink>
 
 #include <memory>
 
-class QAudioSink;
 class QIODevice;
 
 /**
