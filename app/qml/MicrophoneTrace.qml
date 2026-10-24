@@ -112,7 +112,11 @@ Item {
                 const maxBarHeight = height - 2;
                 ctx.fillStyle = barColor;
                 for (let i = 0; i < count; ++i) {
-                    const barHeight = Math.max(1, Math.round(levels[i] * maxBarHeight));
+                    // Decibel scale with a -50 dB floor: quiet sounds stay visible and the top few dB
+                    // all fill the bar, which reads better than a linear meter for speech.
+                    const db = levels[i] > 0 ? 20 * Math.log10(levels[i]) : -100;
+                    const scaled = Math.min(1, Math.max(0, (db + 50) / 50));
+                    const barHeight = Math.max(1, Math.round(scaled * maxBarHeight));
                     // Newest bar on the right at full opacity, fading toward the left
                     ctx.globalAlpha = 0.25 + 0.75 * (i / Math.max(1, count - 1));
                     ctx.fillRect(i * (barWidth + barGap), height - 1 - barHeight, barWidth, barHeight);
