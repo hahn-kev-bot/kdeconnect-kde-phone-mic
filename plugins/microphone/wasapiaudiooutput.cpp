@@ -51,17 +51,22 @@ static REFERENCE_TIME framesToDuration(DWORD sampleRate, UINT32 frames)
     return static_cast<REFERENCE_TIME>((10000.0 * 1000 / sampleRate * frames) + 0.5);
 }
 
+// Exclusive-mode drivers (VB-CABLE included) expect WAVE_FORMAT_EXTENSIBLE; plain WAVE_FORMAT_PCM
+// gets AUDCLNT_E_UNSUPPORTED_FORMAT even for formats the device happily plays.
 static void fillPcm16(WAVEFORMATEXTENSIBLE *format, int channels, int sampleRate)
 {
     *format = {};
     WAVEFORMATEX &base = format->Format;
-    base.wFormatTag = WAVE_FORMAT_PCM;
+    base.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
     base.nChannels = static_cast<WORD>(channels);
     base.nSamplesPerSec = static_cast<DWORD>(sampleRate);
     base.wBitsPerSample = 16;
     base.nBlockAlign = static_cast<WORD>(channels * 2);
     base.nAvgBytesPerSec = base.nSamplesPerSec * base.nBlockAlign;
-    base.cbSize = 0;
+    base.cbSize = sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
+    format->Samples.wValidBitsPerSample = 16;
+    format->dwChannelMask = channels == 1 ? SPEAKER_FRONT_CENTER : (SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT);
+    format->SubFormat = SUBTYPE_PCM;
 }
 
 /**
