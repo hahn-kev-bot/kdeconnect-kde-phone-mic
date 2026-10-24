@@ -66,7 +66,7 @@ public:
      * latency). Persisted in the plugin config; a running stream is not affected.
      */
     bool exclusiveMode() const;
-    Q_SCRIPTABLE void setExclusiveMode(bool exclusive);
+    void setExclusiveMode(bool exclusive);
 
 Q_SIGNALS:
     Q_SCRIPTABLE void streamingChanged(bool streaming);
