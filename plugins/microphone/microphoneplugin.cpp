@@ -22,8 +22,8 @@
 K_PLUGIN_CLASS_WITH_JSON(MicrophonePlugin, "kdeconnect_microphone.json")
 
 // Microseconds of audio to keep buffered in the sink, and to accumulate before playback starts.
-static const qint64 SINK_BUFFER_DURATION = 200000;
-static const qint64 PRIME_DURATION = 60000;
+static const qint64 SINK_BUFFER_DURATION = 80000;
+static const qint64 PRIME_DURATION = 30000;
 static const int DRAIN_INTERVAL_MS = 10;
 
 MicrophonePlugin::MicrophonePlugin(QObject *parent, const QVariantList &args)
