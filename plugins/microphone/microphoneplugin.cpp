@@ -1,0 +1,215 @@
+/**
+ * SPDX-FileCopyrightText: 2026 Kevin Hahn <kevin_hahn@sil.org>
+ *
+ * SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+ */
+
+#include "microphoneplugin.h"
+
+#include <KPluginFactory>
+
+#include <QAbstractSocket>
+#include <QAudioDevice>
+#include <QAudioFormat>
+#include <QAudioSink>
+#include <QDebug>
+#include <QMediaDevices>
+
+#include <core/device.h>
+
+#include "plugin_microphone_debug.h"
+
+K_PLUGIN_CLASS_WITH_JSON(MicrophonePlugin, "kdeconnect_microphone.json")
+
+// Microseconds of audio to keep buffered in the sink, and to accumulate before playback starts.
+static const qint64 SINK_BUFFER_DURATION = 200000;
+static const qint64 PRIME_DURATION = 60000;
+static const int DRAIN_INTERVAL_MS = 10;
+
+MicrophonePlugin::MicrophonePlugin(QObject *parent, const QVariantList &args)
+    : KdeConnectPlugin(parent, args)
+{
+    m_drainTimer.setInterval(DRAIN_INTERVAL_MS);
+    connect(&m_drainTimer, &QTimer::timeout, this, &MicrophonePlugin::drainPending);
+}
+
+MicrophonePlugin::~MicrophonePlugin()
+{
+    stopStream();
+}
+
+void MicrophonePlugin::receivePacket(const NetworkPacket &np)
+{
+    if (np.type() != PACKET_TYPE_MICROPHONE) {
+        return;
+    }
+    if (!np.hasPayload() || !np.payload()) {
+        qCWarning(KDECONNECT_PLUGIN_MICROPHONE) << "Received a microphone packet without a payload, ignoring";
+        return;
+    }
+
+    const int sampleRate = np.get<int>(QStringLiteral("sampleRate"), 48000);
+    const int channels = np.get<int>(QStringLiteral("channels"), 1);
+    const QString formatName = np.get<QString>(QStringLiteral("format"), QStringLiteral("pcm_s16le"));
+    const QString streamId = np.get<QString>(QStringLiteral("streamId"));
+
+    if (formatName != QLatin1String("pcm_s16le")) {
+        qCWarning(KDECONNECT_PLUGIN_MICROPHONE) << "Unsupported audio format" << formatName << ", closing stream" << streamId;
+        np.payload()->close();
+        return;
+    }
+
+    if (isStreaming()) {
+        qCDebug(KDECONNECT_PLUGIN_MICROPHONE) << "Stream" << streamId << "replaces active stream" << m_streamId;
+        stopStream();
+    }
+
+    QAudioFormat format;
+    format.setSampleRate(sampleRate);
+    format.setChannelCount(channels);
+    format.setSampleFormat(QAudioFormat::Int16);
+    if (!format.isValid()) {
+        qCWarning(KDECONNECT_PLUGIN_MICROPHONE) << "Invalid audio format" << sampleRate << "Hz," << channels << "channels";
+        np.payload()->close();
+        return;
+    }
+
+    const QString wantedDevice = config()->getString(QStringLiteral("outputDevice"), QStringLiteral("CABLE Input"));
+    QAudioDevice device;
+    const QList<QAudioDevice> outputs = QMediaDevices::audioOutputs();
+    for (const QAudioDevice &candidate : outputs) {
+        if (candidate.description().contains(wantedDevice, Qt::CaseInsensitive)) {
+            device = candidate;
+            break;
+        }
+    }
+    if (device.isNull()) {
+        device = QMediaDevices::defaultAudioOutput();
+        qCWarning(KDECONNECT_PLUGIN_MICROPHONE) << "No audio output matches" << wantedDevice << ", using default output" << device.description();
+    }
+    if (device.isNull()) {
+        qCWarning(KDECONNECT_PLUGIN_MICROPHONE) << "No audio output device available, closing stream" << streamId;
+        np.payload()->close();
+        return;
+    }
+    if (!device.isFormatSupported(format)) {
+        qCWarning(KDECONNECT_PLUGIN_MICROPHONE) << "Audio output" << device.description() << "does not support" << sampleRate << "Hz," << channels
+                                                << "channels, Int16. Closing stream" << streamId;
+        np.payload()->close();
+        return;
+    }
+
+    m_socket = np.payload();
+    m_streamId = streamId;
+    m_pending.clear();
+    m_primed = false;
+    m_primeBytes = format.bytesForDuration(PRIME_DURATION);
+
+    m_sink = new QAudioSink(device, format, this);
+    m_sink->setBufferSize(format.bytesForDuration(SINK_BUFFER_DURATION));
+    m_sinkDevice = m_sink->start();
+    if (!m_sinkDevice) {
+        qCWarning(KDECONNECT_PLUGIN_MICROPHONE) << "Could not start audio output" << device.description() << "error" << static_cast<int>(m_sink->error());
+        stopStream();
+        return;
+    }
+
+    // The payload socket may still be connecting at this point; readyRead simply fires once data arrives.
+    connect(m_socket.data(), &QIODevice::readyRead, this, &MicrophonePlugin::socketReadyRead);
+    connect(m_socket.data(), &QIODevice::readChannelFinished, this, &MicrophonePlugin::stopStream);
+    if (auto *socket = qobject_cast<QAbstractSocket *>(m_socket.data())) {
+        connect(socket, &QAbstractSocket::disconnected, this, &MicrophonePlugin::stopStream);
+        connect(socket, &QAbstractSocket::errorOccurred, this, &MicrophonePlugin::stopStream);
+    }
+    m_drainTimer.start();
+
+    qCDebug(KDECONNECT_PLUGIN_MICROPHONE) << "Streaming" << streamId << "at" << sampleRate << "Hz," << channels << "channels to" << device.description();
+    Q_EMIT streamingChanged(true);
+
+    if (m_socket->bytesAvailable() > 0) {
+        socketReadyRead();
+    }
+}
+
+void MicrophonePlugin::socketReadyRead()
+{
+    if (!m_socket) {
+        return;
+    }
+    m_pending.append(m_socket->readAll());
+    drainPending();
+}
+
+void MicrophonePlugin::drainPending()
+{
+    if (!m_sinkDevice || m_pending.isEmpty()) {
+        return;
+    }
+    if (!m_primed) {
+        if (m_pending.size() < m_primeBytes) {
+            return;
+        }
+        m_primed = true;
+    }
+    const qsizetype toWrite = qMin(m_pending.size(), m_sink->bytesFree());
+    if (toWrite <= 0) {
+        return;
+    }
+    const qint64 written = m_sinkDevice->write(m_pending.constData(), toWrite);
+    if (written > 0) {
+        m_pending.remove(0, written);
+    }
+}
+
+void MicrophonePlugin::stopStream()
+{
+    if (!m_socket && !m_sink) {
+        return;
+    }
+
+    m_drainTimer.stop();
+
+    if (m_sink) {
+        m_sink->stop();
+        delete m_sink;
+        m_sink = nullptr;
+        m_sinkDevice = nullptr;
+    }
+
+    if (m_socket) {
+        QSharedPointer<QIODevice> socket = m_socket;
+        m_socket.reset();
+        disconnect(socket.data(), nullptr, this, nullptr);
+        socket->close();
+        // stopStream may be running inside one of the socket's own signals, so release the last
+        // reference (and thereby delete the socket) only once we are back in the event loop.
+        QTimer::singleShot(0, this, [socket]() {
+            Q_UNUSED(socket);
+        });
+    }
+
+    m_pending.clear();
+    m_primed = false;
+
+    qCDebug(KDECONNECT_PLUGIN_MICROPHONE) << "Stopped stream" << m_streamId;
+    m_streamId.clear();
+    Q_EMIT streamingChanged(false);
+}
+
+bool MicrophonePlugin::isStreaming() const
+{
+    return m_sink != nullptr;
+}
+
+void MicrophonePlugin::stop()
+{
+    stopStream();
+}
+
+QString MicrophonePlugin::dbusPath() const
+{
+    return QStringLiteral("/modules/kdeconnect/devices/%1/microphone").arg(device()->id());
+}
+
+#include "microphoneplugin.moc"
+#include "moc_microphoneplugin.cpp"

@@ -1,0 +1,22 @@
+{
+    "$schema": "../kdeconnect.schema.json",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Email": "kevin_hahn@sil.org",
+                "Name": "Kevin Hahn"
+            }
+        ],
+        "Description": "Use a paired phone as a microphone",
+        "EnabledByDefault": true,
+        "Icon": "audio-input-microphone",
+        "License": "GPL",
+        "Name": "Microphone"
+    },
+    "X-KdeConnect-OutgoingPacketType": [
+        "kdeconnect.microphone.request"
+    ],
+    "X-KdeConnect-SupportedPacketType": [
+        "kdeconnect.microphone"
+    ]
+}
