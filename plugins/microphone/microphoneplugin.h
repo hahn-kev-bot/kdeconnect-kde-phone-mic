@@ -35,6 +35,8 @@ class MicrophonePlugin : public KdeConnectPlugin
     Q_PROPERTY(QString outputDevice READ outputDevice NOTIFY streamingChanged)
     Q_PROPERTY(int sampleRate READ sampleRate NOTIFY streamingChanged)
     Q_PROPERTY(qlonglong startedAt READ startedAt NOTIFY streamingChanged)
+    Q_PROPERTY(QString outputMode READ outputMode NOTIFY streamingChanged)
+    Q_PROPERTY(bool exclusiveMode READ exclusiveMode WRITE setExclusiveMode NOTIFY exclusiveModeChanged)
 
 public:
     explicit MicrophonePlugin(QObject *parent, const QVariantList &args);
@@ -54,8 +56,21 @@ public:
      */
     qlonglong startedAt() const;
 
+    /**
+     * "exclusive" or "shared" while streaming on Windows, "" while idle
+     */
+    QString outputMode() const;
+
+    /**
+     * Whether the next stream should open the output device in WASAPI exclusive mode (lowest
+     * latency). Persisted in the plugin config; a running stream is not affected.
+     */
+    bool exclusiveMode() const;
+    Q_SCRIPTABLE void setExclusiveMode(bool exclusive);
+
 Q_SIGNALS:
     Q_SCRIPTABLE void streamingChanged(bool streaming);
+    Q_SCRIPTABLE void exclusiveModeChanged(bool exclusive);
 
     /**
      * Audio level of the samples played since the previous emission, both in 0..1.
@@ -82,6 +97,7 @@ private:
     bool m_primed = false;
     QString m_streamId;
     QString m_outputDevice;
+    QString m_outputMode;
     int m_sampleRate = 0;
     qlonglong m_startedAt = 0;
 

@@ -48,4 +48,12 @@ public:
     {
         return 0;
     }
+
+    /**
+     * How the device is opened: "exclusive" bypasses the system mixer, "shared" goes through it.
+     */
+    virtual QString mode() const
+    {
+        return QStringLiteral("shared");
+    }
 };

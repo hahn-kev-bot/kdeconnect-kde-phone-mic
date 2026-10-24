@@ -23,6 +23,10 @@ QtObject {
     readonly property string outputDevice: microphone?.outputDevice ?? ""
     readonly property int sampleRate: microphone?.sampleRate ?? 0
     readonly property double startedAt: microphone?.startedAt ?? 0
+    // "exclusive" or "shared" while streaming, "" otherwise
+    readonly property string outputMode: microphone?.outputMode ?? ""
+    // Persisted plugin setting; change it through setExclusiveMode so the write reaches the daemon
+    readonly property bool exclusiveMode: microphone?.exclusiveMode ?? true
     readonly property string iconName: streaming ? "audio-input-microphone" : "microphone-sensitivity-muted"
 
     // Peak of the most recent level window in dBFS, clamped at -60
@@ -62,6 +66,12 @@ QtObject {
     function stop(): void {
         if (microphone) {
             microphone.stop();
+        }
+    }
+
+    function setExclusiveMode(enabled: bool): void {
+        if (microphone) {
+            microphone.exclusiveMode = enabled;
         }
     }
 

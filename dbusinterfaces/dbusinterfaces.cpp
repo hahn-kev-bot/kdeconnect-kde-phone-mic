@@ -207,6 +207,7 @@ MicrophoneDbusInterface::MicrophoneDbusInterface(const QString &deviceId, QObjec
 {
     connect(this, &OrgKdeKdeconnectDeviceMicrophoneInterface::streamingChanged, this, &MicrophoneDbusInterface::streamingChangedProxy);
     connect(this, &OrgKdeKdeconnectDeviceMicrophoneInterface::levelChanged, this, &MicrophoneDbusInterface::levelChangedProxy);
+    connect(this, &OrgKdeKdeconnectDeviceMicrophoneInterface::exclusiveModeChanged, this, &MicrophoneDbusInterface::exclusiveModeChangedProxy);
 }
 
 #include "moc_dbusinterfaces.cpp"

@@ -32,6 +32,7 @@ static const int DRAIN_INTERVAL_MS = 10;
 // catching up), drop the oldest audio so the delay never grows beyond it.
 static const qint64 MAX_PENDING_DURATION = 20000;
 static const qint64 LEVEL_INTERVAL_MS = 50;
+#define CONFIG_EXCLUSIVE_MODE QStringLiteral("exclusiveMode")
 
 MicrophonePlugin::MicrophonePlugin(QObject *parent, const QVariantList &args)
     : KdeConnectPlugin(parent, args)
@@ -49,6 +50,7 @@ std::unique_ptr<AudioOutput> MicrophonePlugin::openOutput(int sampleRate, int ch
 {
 #ifdef Q_OS_WIN
     auto wasapi = std::make_unique<WasapiAudioOutput>(static_cast<int>(MAX_PENDING_DURATION / 1000));
+    wasapi->setExclusive(exclusiveMode());
     if (wasapi->start(sampleRate, channels, wantedDevice, chosenDescription)) {
         return wasapi;
     }
@@ -110,6 +112,7 @@ void MicrophonePlugin::receivePacket(const NetworkPacket &np)
     m_maxPendingBytes = static_cast<qsizetype>(m_bytesPerSecond * MAX_PENDING_DURATION / 1000000);
     m_droppedBytes = 0;
     m_outputDevice = chosenDevice;
+    m_outputMode = m_output->mode();
     m_sampleRate = sampleRate;
     m_startedAt = QDateTime::currentMSecsSinceEpoch();
     m_levelSkip = 0;
@@ -127,7 +130,8 @@ void MicrophonePlugin::receivePacket(const NetworkPacket &np)
     }
     m_drainTimer.start();
 
-    qCDebug(KDECONNECT_PLUGIN_MICROPHONE) << "Streaming" << streamId << "at" << sampleRate << "Hz," << channels << "channels to" << chosenDevice;
+    qCDebug(KDECONNECT_PLUGIN_MICROPHONE) << "Streaming" << streamId << "at" << sampleRate << "Hz," << channels << "channels to" << chosenDevice << "(" << m_outputMode
+                                          << ")";
     Q_EMIT streamingChanged(true);
 
     if (m_socket->bytesAvailable() > 0) {
@@ -231,6 +235,7 @@ void MicrophonePlugin::stopStream()
     m_pending.clear();
     m_primed = false;
     m_outputDevice.clear();
+    m_outputMode.clear();
     m_sampleRate = 0;
     m_bytesPerSecond = 0;
     m_startedAt = 0;
@@ -264,6 +269,25 @@ int MicrophonePlugin::sampleRate() const
 qlonglong MicrophonePlugin::startedAt() const
 {
     return m_startedAt;
+}
+
+QString MicrophonePlugin::outputMode() const
+{
+    return m_outputMode;
+}
+
+bool MicrophonePlugin::exclusiveMode() const
+{
+    return config()->getBool(CONFIG_EXCLUSIVE_MODE, true);
+}
+
+void MicrophonePlugin::setExclusiveMode(bool exclusive)
+{
+    if (exclusive == exclusiveMode()) {
+        return;
+    }
+    config()->set(CONFIG_EXCLUSIVE_MODE, exclusive);
+    Q_EMIT exclusiveModeChanged(exclusive);
 }
 
 void MicrophonePlugin::stop()

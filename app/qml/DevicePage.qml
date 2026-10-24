@@ -298,7 +298,7 @@ Kirigami.ScrollablePage {
                 name: microphoneInfo.displayString
                 iconNameOverride: microphoneInfo.iconName
                 hidden: !microphoneInfo.available
-                extra: microphoneInfo.streaming ? traceComponent : null
+                extra: microphoneInfo.available ? traceComponent : null
                 section: "info"
                 device: root.currentDevice
             },

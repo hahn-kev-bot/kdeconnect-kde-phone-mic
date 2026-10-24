@@ -12,8 +12,8 @@ import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
 /**
- * Details and a scrolling level trace for a streaming microphone, shown below the
- * "Microphone" row of the device page.
+ * Details and a scrolling level trace for a streaming microphone, plus the plugin's settings,
+ * shown below the "Microphone" row of the device page. Only the settings are visible while idle.
  */
 Item {
     id: root
@@ -54,12 +54,16 @@ Item {
         RowLayout {
             Layout.fillWidth: true
             spacing: Kirigami.Units.largeSpacing
+            visible: root.info.streaming
 
             QQC2.Label {
                 Layout.fillWidth: true
                 elide: Text.ElideRight
                 color: Kirigami.Theme.disabledTextColor
-                text: i18nd("kdeconnect-app", "%1 Hz mono - %2 - peak %3 dB", root.info.sampleRate, root.formatElapsed(root.elapsedMs), Math.round(root.info.peakDb))
+                text: {
+                    const base = i18nd("kdeconnect-app", "%1 Hz mono - %2 - peak %3 dB", root.info.sampleRate, root.formatElapsed(root.elapsedMs), Math.round(root.info.peakDb));
+                    return root.info.outputMode ? base + " - " + root.info.outputMode : base;
+                }
             }
 
             QQC2.Button {
@@ -74,6 +78,7 @@ Item {
 
             Layout.fillWidth: true
             Layout.preferredHeight: 44
+            visible: root.info.streaming
 
             readonly property int barGap: 2
             readonly property color barColor: Kirigami.Theme.highlightColor
@@ -113,6 +118,13 @@ Item {
                     ctx.fillRect(i * (barWidth + barGap), height - 1 - barHeight, barWidth, barHeight);
                 }
             }
+        }
+
+        QQC2.CheckBox {
+            Layout.fillWidth: true
+            text: i18nd("kdeconnect-app", "Exclusive device access (lowest latency, applies at the next start)")
+            checked: root.info.exclusiveMode
+            onToggled: root.info.setExclusiveMode(checked)
         }
     }
 }
