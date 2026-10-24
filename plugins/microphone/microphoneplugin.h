@@ -75,6 +75,7 @@ private:
     qsizetype m_primeBytes = 0;
     qsizetype m_maxPendingBytes = 0;
     qint64 m_droppedBytes = 0;
+    quint32 m_levelTicks = 0;
     bool m_primed = false;
     QString m_streamId;
     QString m_outputDevice;

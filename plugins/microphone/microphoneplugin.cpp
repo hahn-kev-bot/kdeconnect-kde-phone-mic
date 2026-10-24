@@ -205,6 +205,11 @@ void MicrophonePlugin::scanLevels(const char *data, qsizetype size)
         return;
     }
     const double rms = m_levelSamples > 0 ? std::sqrt(m_levelSquares / static_cast<double>(m_levelSamples)) : 0.0;
+    if (++m_levelTicks % 20 == 0 && m_sink) { // once a second: how much audio sits between us and the device
+        const qsizetype queued = m_sink->bufferSize() - m_sink->bytesFree();
+        qCDebug(KDECONNECT_PLUGIN_MICROPHONE) << "Delay budget: sink holds" << m_sink->format().durationForBytes(queued) / 1000 << "ms,"
+                                              << "pending" << m_sink->format().durationForBytes(m_pending.size()) / 1000 << "ms, dropped" << m_droppedBytes << "bytes";
+    }
     Q_EMIT levelChanged(qMin(m_levelPeak, 1.0), qMin(rms, 1.0));
     m_levelPeak = 0.0;
     m_levelSquares = 0.0;
