@@ -9,12 +9,8 @@
 #include <KPluginFactory>
 
 #include <QAbstractSocket>
-#include <QAudioDevice>
-#include <QAudioFormat>
-#include <QAudioSink>
 #include <QDateTime>
 #include <QDebug>
-#include <QMediaDevices>
 #include <QtEndian>
 
 #include <cmath>
@@ -22,11 +18,14 @@
 #include <core/device.h>
 
 #include "plugin_microphone_debug.h"
+#include "qtaudiooutput.h"
+#ifdef Q_OS_WIN
+#include "wasapiaudiooutput.h"
+#endif
 
 K_PLUGIN_CLASS_WITH_JSON(MicrophonePlugin, "kdeconnect_microphone.json")
 
-// Microseconds of audio to keep buffered in the sink, and to accumulate before playback starts.
-static const qint64 SINK_BUFFER_DURATION = 40000;
+// Microseconds of audio to accumulate before playback starts.
 static const qint64 PRIME_DURATION = 20000;
 static const int DRAIN_INTERVAL_MS = 10;
 // If the network delivers more than this ahead of playback (a burst after connecting, a Wi-Fi hiccup
@@ -44,6 +43,22 @@ MicrophonePlugin::MicrophonePlugin(QObject *parent, const QVariantList &args)
 MicrophonePlugin::~MicrophonePlugin()
 {
     stopStream();
+}
+
+std::unique_ptr<AudioOutput> MicrophonePlugin::openOutput(int sampleRate, int channels, const QString &wantedDevice, QString *chosenDescription)
+{
+#ifdef Q_OS_WIN
+    auto wasapi = std::make_unique<WasapiAudioOutput>(static_cast<int>(MAX_PENDING_DURATION / 1000));
+    if (wasapi->start(sampleRate, channels, wantedDevice, chosenDescription)) {
+        return wasapi;
+    }
+    qCWarning(KDECONNECT_PLUGIN_MICROPHONE) << "WASAPI output unavailable, falling back to QAudioSink";
+#endif
+    auto qt = std::make_unique<QtAudioOutput>();
+    if (qt->start(sampleRate, channels, wantedDevice, chosenDescription)) {
+        return qt;
+    }
+    return nullptr;
 }
 
 void MicrophonePlugin::receivePacket(const NetworkPacket &np)
@@ -66,43 +81,22 @@ void MicrophonePlugin::receivePacket(const NetworkPacket &np)
         np.payload()->close();
         return;
     }
+    if (sampleRate <= 0 || channels <= 0 || channels > 8) {
+        qCWarning(KDECONNECT_PLUGIN_MICROPHONE) << "Invalid audio format" << sampleRate << "Hz," << channels << "channels, closing stream" << streamId;
+        np.payload()->close();
+        return;
+    }
 
     if (isStreaming()) {
         qCDebug(KDECONNECT_PLUGIN_MICROPHONE) << "Stream" << streamId << "replaces active stream" << m_streamId;
         stopStream();
     }
 
-    QAudioFormat format;
-    format.setSampleRate(sampleRate);
-    format.setChannelCount(channels);
-    format.setSampleFormat(QAudioFormat::Int16);
-    if (!format.isValid()) {
-        qCWarning(KDECONNECT_PLUGIN_MICROPHONE) << "Invalid audio format" << sampleRate << "Hz," << channels << "channels";
-        np.payload()->close();
-        return;
-    }
-
     const QString wantedDevice = config()->getString(QStringLiteral("outputDevice"), QStringLiteral("CABLE Input"));
-    QAudioDevice device;
-    const QList<QAudioDevice> outputs = QMediaDevices::audioOutputs();
-    for (const QAudioDevice &candidate : outputs) {
-        if (candidate.description().contains(wantedDevice, Qt::CaseInsensitive)) {
-            device = candidate;
-            break;
-        }
-    }
-    if (device.isNull()) {
-        device = QMediaDevices::defaultAudioOutput();
-        qCWarning(KDECONNECT_PLUGIN_MICROPHONE) << "No audio output matches" << wantedDevice << ", using default output" << device.description();
-    }
-    if (device.isNull()) {
-        qCWarning(KDECONNECT_PLUGIN_MICROPHONE) << "No audio output device available, closing stream" << streamId;
-        np.payload()->close();
-        return;
-    }
-    if (!device.isFormatSupported(format)) {
-        qCWarning(KDECONNECT_PLUGIN_MICROPHONE) << "Audio output" << device.description() << "does not support" << sampleRate << "Hz," << channels
-                                                << "channels, Int16. Closing stream" << streamId;
+    QString chosenDevice;
+    m_output = openOutput(sampleRate, channels, wantedDevice, &chosenDevice);
+    if (!m_output) {
+        qCWarning(KDECONNECT_PLUGIN_MICROPHONE) << "Could not open any audio output, closing stream" << streamId;
         np.payload()->close();
         return;
     }
@@ -111,10 +105,11 @@ void MicrophonePlugin::receivePacket(const NetworkPacket &np)
     m_streamId = streamId;
     m_pending.clear();
     m_primed = false;
-    m_primeBytes = format.bytesForDuration(PRIME_DURATION);
-    m_maxPendingBytes = format.bytesForDuration(MAX_PENDING_DURATION);
+    m_bytesPerSecond = static_cast<qint64>(sampleRate) * channels * 2;
+    m_primeBytes = static_cast<qsizetype>(m_bytesPerSecond * PRIME_DURATION / 1000000);
+    m_maxPendingBytes = static_cast<qsizetype>(m_bytesPerSecond * MAX_PENDING_DURATION / 1000000);
     m_droppedBytes = 0;
-    m_outputDevice = device.description();
+    m_outputDevice = chosenDevice;
     m_sampleRate = sampleRate;
     m_startedAt = QDateTime::currentMSecsSinceEpoch();
     m_levelSkip = 0;
@@ -122,15 +117,6 @@ void MicrophonePlugin::receivePacket(const NetworkPacket &np)
     m_levelSquares = 0.0;
     m_levelSamples = 0;
     m_levelTimer.start();
-
-    m_sink = new QAudioSink(device, format, this);
-    m_sink->setBufferSize(format.bytesForDuration(SINK_BUFFER_DURATION));
-    m_sinkDevice = m_sink->start();
-    if (!m_sinkDevice) {
-        qCWarning(KDECONNECT_PLUGIN_MICROPHONE) << "Could not start audio output" << device.description() << "error" << static_cast<int>(m_sink->error());
-        stopStream();
-        return;
-    }
 
     // The payload socket may still be connecting at this point; readyRead simply fires once data arrives.
     connect(m_socket.data(), &QIODevice::readyRead, this, &MicrophonePlugin::socketReadyRead);
@@ -141,7 +127,7 @@ void MicrophonePlugin::receivePacket(const NetworkPacket &np)
     }
     m_drainTimer.start();
 
-    qCDebug(KDECONNECT_PLUGIN_MICROPHONE) << "Streaming" << streamId << "at" << sampleRate << "Hz," << channels << "channels to" << device.description();
+    qCDebug(KDECONNECT_PLUGIN_MICROPHONE) << "Streaming" << streamId << "at" << sampleRate << "Hz," << channels << "channels to" << chosenDevice;
     Q_EMIT streamingChanged(true);
 
     if (m_socket->bytesAvailable() > 0) {
@@ -167,7 +153,7 @@ void MicrophonePlugin::socketReadyRead()
 
 void MicrophonePlugin::drainPending()
 {
-    if (!m_sinkDevice || m_pending.isEmpty()) {
+    if (!m_output || m_pending.isEmpty()) {
         return;
     }
     if (!m_primed) {
@@ -176,11 +162,11 @@ void MicrophonePlugin::drainPending()
         }
         m_primed = true;
     }
-    const qsizetype toWrite = qMin(m_pending.size(), m_sink->bytesFree());
+    const qsizetype toWrite = qMin(m_pending.size(), m_output->freeBytes());
     if (toWrite <= 0) {
         return;
     }
-    const qint64 written = m_sinkDevice->write(m_pending.constData(), toWrite);
+    const qint64 written = m_output->write(m_pending.constData(), toWrite);
     if (written > 0) {
         scanLevels(m_pending.constData(), written);
         m_pending.remove(0, written);
@@ -205,10 +191,10 @@ void MicrophonePlugin::scanLevels(const char *data, qsizetype size)
         return;
     }
     const double rms = m_levelSamples > 0 ? std::sqrt(m_levelSquares / static_cast<double>(m_levelSamples)) : 0.0;
-    if (++m_levelTicks % 20 == 0 && m_sink) { // once a second: how much audio sits between us and the device
-        const qsizetype queued = m_sink->bufferSize() - m_sink->bytesFree();
-        qCDebug(KDECONNECT_PLUGIN_MICROPHONE) << "Delay budget: sink holds" << m_sink->format().durationForBytes(queued) / 1000 << "ms,"
-                                              << "pending" << m_sink->format().durationForBytes(m_pending.size()) / 1000 << "ms, dropped" << m_droppedBytes << "bytes";
+    if (++m_levelTicks % 20 == 0 && m_output && m_bytesPerSecond > 0) { // once a second: how much audio sits between us and the device
+        qCDebug(KDECONNECT_PLUGIN_MICROPHONE) << "Delay budget: output holds" << m_output->queuedMicros() / 1000 << "ms,"
+                                              << "pending" << m_pending.size() * 1000 / m_bytesPerSecond << "ms, dropped" << m_droppedBytes << "bytes here,"
+                                              << m_output->droppedBytes() << "in the output, underruns" << m_output->underruns();
     }
     Q_EMIT levelChanged(qMin(m_levelPeak, 1.0), qMin(rms, 1.0));
     m_levelPeak = 0.0;
@@ -219,17 +205,15 @@ void MicrophonePlugin::scanLevels(const char *data, qsizetype size)
 
 void MicrophonePlugin::stopStream()
 {
-    if (!m_socket && !m_sink) {
+    if (!m_socket && !m_output) {
         return;
     }
 
     m_drainTimer.stop();
 
-    if (m_sink) {
-        m_sink->stop();
-        delete m_sink;
-        m_sink = nullptr;
-        m_sinkDevice = nullptr;
+    if (m_output) {
+        m_output->stop();
+        m_output.reset();
     }
 
     if (m_socket) {
@@ -248,6 +232,7 @@ void MicrophonePlugin::stopStream()
     m_primed = false;
     m_outputDevice.clear();
     m_sampleRate = 0;
+    m_bytesPerSecond = 0;
     m_startedAt = 0;
     m_levelTimer.invalidate();
     m_levelSkip = 0;
@@ -263,7 +248,7 @@ void MicrophonePlugin::stopStream()
 
 bool MicrophonePlugin::isStreaming() const
 {
-    return m_sink != nullptr;
+    return m_output != nullptr;
 }
 
 QString MicrophonePlugin::outputDevice() const

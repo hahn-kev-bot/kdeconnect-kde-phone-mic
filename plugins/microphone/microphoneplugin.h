@@ -13,9 +13,11 @@
 #include <QSharedPointer>
 #include <QTimer>
 
+#include <memory>
+
 #include <core/kdeconnectplugin.h>
 
-class QAudioSink;
+class AudioOutput;
 
 #define PACKET_TYPE_MICROPHONE QStringLiteral("kdeconnect.microphone")
 #define PACKET_TYPE_MICROPHONE_REQUEST QStringLiteral("kdeconnect.microphone.request")
@@ -62,18 +64,19 @@ Q_SIGNALS:
     Q_SCRIPTABLE void levelChanged(double peak, double rms);
 
 private:
+    std::unique_ptr<AudioOutput> openOutput(int sampleRate, int channels, const QString &wantedDevice, QString *chosenDescription);
     void socketReadyRead();
     void drainPending();
     void scanLevels(const char *data, qsizetype size);
     void stopStream();
 
     QSharedPointer<QIODevice> m_socket;
-    QAudioSink *m_sink = nullptr;
-    QIODevice *m_sinkDevice = nullptr;
+    std::unique_ptr<AudioOutput> m_output;
     QTimer m_drainTimer;
     QByteArray m_pending;
     qsizetype m_primeBytes = 0;
     qsizetype m_maxPendingBytes = 0;
+    qint64 m_bytesPerSecond = 0;
     qint64 m_droppedBytes = 0;
     quint32 m_levelTicks = 0;
     bool m_primed = false;
