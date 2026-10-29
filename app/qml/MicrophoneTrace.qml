@@ -130,5 +130,41 @@ Item {
             checked: root.info.exclusiveMode
             onToggled: root.info.setExclusiveMode(checked)
         }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Kirigami.Units.largeSpacing
+
+            QQC2.Label {
+                text: i18nd("kdeconnect-app", "Gain")
+            }
+
+            QQC2.Slider {
+                id: gainSlider
+
+                Layout.fillWidth: true
+                from: 0
+                to: 24
+                stepSize: 1
+                value: root.info.gainDb
+                // Applies live while dragging; the binding above is restored from the daemon's value
+                onMoved: root.info.setGainDb(value)
+            }
+
+            QQC2.Label {
+                id: gainLabel
+
+                Layout.minimumWidth: gainLabelMetrics.width
+                horizontalAlignment: Text.AlignRight
+                font.features: ({ "tnum": 1 })
+                text: i18nd("kdeconnect-app", "+%1 dB", Math.round(gainSlider.value))
+
+                TextMetrics {
+                    id: gainLabelMetrics
+                    font: gainLabel.font
+                    text: i18nd("kdeconnect-app", "+%1 dB", 24)
+                }
+            }
+        }
     }
 }

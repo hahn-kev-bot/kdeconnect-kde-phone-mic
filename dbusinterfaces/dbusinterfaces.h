@@ -270,6 +270,7 @@ class KDECONNECTDBUSINTERFACES_EXPORT MicrophoneDbusInterface : public OrgKdeKde
     Q_PROPERTY(qlonglong startedAt READ startedAt NOTIFY streamingChangedProxy)
     Q_PROPERTY(QString outputMode READ outputMode NOTIFY streamingChangedProxy)
     Q_PROPERTY(bool exclusiveMode READ exclusiveMode WRITE setExclusiveMode NOTIFY exclusiveModeChangedProxy)
+    Q_PROPERTY(double gainDb READ gainDb WRITE setGainDb NOTIFY gainDbChangedProxy)
 public:
     explicit MicrophoneDbusInterface(const QString &deviceId, QObject *parent = nullptr);
 
@@ -277,6 +278,7 @@ Q_SIGNALS:
     void streamingChangedProxy(bool streaming);
     void levelChangedProxy(double peak, double rms);
     void exclusiveModeChangedProxy(bool exclusive);
+    void gainDbChangedProxy(double gainDb);
 };
 
 #endif

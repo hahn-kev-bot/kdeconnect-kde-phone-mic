@@ -33,10 +33,26 @@ static const int DRAIN_INTERVAL_MS = 10;
 static const qint64 MAX_PENDING_DURATION = 20000;
 static const qint64 LEVEL_INTERVAL_MS = 50;
 #define CONFIG_EXCLUSIVE_MODE QStringLiteral("exclusiveMode")
+#define CONFIG_GAIN_DB QStringLiteral("gainDb")
+static const double MAX_GAIN_DB = 24.0;
+// Soft limiter: linear up to this level, then a tanh knee that approaches full scale asymptotically.
+static const double FULL_SCALE = 32767.0;
+static const double LIMITER_THRESHOLD = 0.75 * FULL_SCALE;
+static const double LIMITER_HEADROOM = FULL_SCALE - LIMITER_THRESHOLD;
+
+static double clampGainDb(double gainDb)
+{
+    if (std::isnan(gainDb)) {
+        return 0.0;
+    }
+    return qBound(0.0, gainDb, MAX_GAIN_DB);
+}
 
 MicrophonePlugin::MicrophonePlugin(QObject *parent, const QVariantList &args)
     : KdeConnectPlugin(parent, args)
 {
+    m_gainDb = clampGainDb(config()->getString(CONFIG_GAIN_DB, QStringLiteral("0")).toDouble());
+    m_linearGain = std::pow(10.0, m_gainDb / 20.0);
     m_drainTimer.setInterval(DRAIN_INTERVAL_MS);
     connect(&m_drainTimer, &QTimer::timeout, this, &MicrophonePlugin::drainPending);
 }
@@ -111,6 +127,7 @@ void MicrophonePlugin::receivePacket(const NetworkPacket &np)
     m_primeBytes = static_cast<qsizetype>(m_bytesPerSecond * PRIME_DURATION / 1000000);
     m_maxPendingBytes = static_cast<qsizetype>(m_bytesPerSecond * MAX_PENDING_DURATION / 1000000);
     m_droppedBytes = 0;
+    m_gainedBytes = 0;
     m_outputDevice = chosenDevice;
     m_outputMode = m_output->mode();
     m_sampleRate = sampleRate;
@@ -149,7 +166,8 @@ void MicrophonePlugin::socketReadyRead()
         const qsizetype excess = m_pending.size() - m_maxPendingBytes;
         m_pending.remove(0, excess);
         m_droppedBytes += excess;
-        m_levelSkip = 0; // the dropped run may have ended mid-sample; resync on the next write
+        m_gainedBytes = qMax<qsizetype>(0, m_gainedBytes - excess);
+        m_levelSkip = (m_levelSkip + excess) % 2; // keep the sample boundary where the stream actually has it
         qCDebug(KDECONNECT_PLUGIN_MICROPHONE) << "Dropped" << excess << "stale bytes to keep the delay bounded (total" << m_droppedBytes << ")";
     }
     drainPending();
@@ -170,11 +188,36 @@ void MicrophonePlugin::drainPending()
     if (toWrite <= 0) {
         return;
     }
+    applyGain(toWrite);
     const qint64 written = m_output->write(m_pending.constData(), toWrite);
     if (written > 0) {
         scanLevels(m_pending.constData(), written);
         m_pending.remove(0, written);
+        m_gainedBytes = qMax<qsizetype>(0, m_gainedBytes - written);
     }
+}
+
+void MicrophonePlugin::applyGain(qsizetype end)
+{
+    // Amplify the whole samples in m_pending[0, end) in place, skipping what an earlier call already
+    // did. Samples start at offset m_levelSkip (see scanLevels); a trailing odd byte is left alone and
+    // gets processed together with its other half on the next call.
+    if (m_linearGain == 1.0) {
+        return;
+    }
+    qsizetype pos = m_gainedBytes > m_levelSkip ? m_gainedBytes : m_levelSkip;
+    char *data = m_pending.data();
+    for (; pos + 2 <= end; pos += 2) {
+        const double amplified = static_cast<double>(qFromLittleEndian<qint16>(data + pos)) * m_linearGain;
+        double magnitude = std::abs(amplified);
+        if (magnitude > LIMITER_THRESHOLD) {
+            magnitude = LIMITER_THRESHOLD + LIMITER_HEADROOM * std::tanh((magnitude - LIMITER_THRESHOLD) / LIMITER_HEADROOM);
+        }
+        const double limited = amplified < 0.0 ? -magnitude : magnitude;
+        const qint16 sample = static_cast<qint16>(qBound(-32768.0, std::round(limited), FULL_SCALE));
+        qToLittleEndian<qint16>(sample, data + pos);
+    }
+    m_gainedBytes = qMax(m_gainedBytes, pos);
 }
 
 void MicrophonePlugin::scanLevels(const char *data, qsizetype size)
@@ -233,6 +276,7 @@ void MicrophonePlugin::stopStream()
     }
 
     m_pending.clear();
+    m_gainedBytes = 0;
     m_primed = false;
     m_outputDevice.clear();
     m_outputMode.clear();
@@ -288,6 +332,23 @@ void MicrophonePlugin::setExclusiveMode(bool exclusive)
     }
     config()->set(CONFIG_EXCLUSIVE_MODE, exclusive);
     Q_EMIT exclusiveModeChanged(exclusive);
+}
+
+double MicrophonePlugin::gainDb() const
+{
+    return m_gainDb;
+}
+
+void MicrophonePlugin::setGainDb(double gainDb)
+{
+    const double clamped = clampGainDb(gainDb);
+    if (clamped == m_gainDb) {
+        return;
+    }
+    m_gainDb = clamped;
+    m_linearGain = std::pow(10.0, clamped / 20.0);
+    config()->set(CONFIG_GAIN_DB, clamped);
+    Q_EMIT gainDbChanged(clamped);
 }
 
 void MicrophonePlugin::stop()

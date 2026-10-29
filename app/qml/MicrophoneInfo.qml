@@ -27,6 +27,8 @@ QtObject {
     readonly property string outputMode: microphone?.outputMode ?? ""
     // Persisted plugin setting; change it through setExclusiveMode so the write reaches the daemon
     readonly property bool exclusiveMode: microphone?.exclusiveMode ?? true
+    // Persisted plugin setting in dB (0..24); change it through setGainDb
+    readonly property real gainDb: microphone?.gainDb ?? 0
     readonly property string iconName: streaming ? "audio-input-microphone" : "microphone-sensitivity-muted"
 
     // Peak of the most recent level window in dBFS, clamped at -60
@@ -72,6 +74,12 @@ QtObject {
     function setExclusiveMode(enabled: bool): void {
         if (microphone) {
             microphone.exclusiveMode = enabled;
+        }
+    }
+
+    function setGainDb(value: real): void {
+        if (microphone) {
+            microphone.gainDb = value;
         }
     }
 

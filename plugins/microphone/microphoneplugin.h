@@ -37,6 +37,7 @@ class MicrophonePlugin : public KdeConnectPlugin
     Q_PROPERTY(qlonglong startedAt READ startedAt NOTIFY streamingChanged)
     Q_PROPERTY(QString outputMode READ outputMode NOTIFY streamingChanged)
     Q_PROPERTY(bool exclusiveMode READ exclusiveMode WRITE setExclusiveMode NOTIFY exclusiveModeChanged)
+    Q_PROPERTY(double gainDb READ gainDb WRITE setGainDb NOTIFY gainDbChanged)
 
 public:
     explicit MicrophonePlugin(QObject *parent, const QVariantList &args);
@@ -68,9 +69,17 @@ public:
     bool exclusiveMode() const;
     void setExclusiveMode(bool exclusive);
 
+    /**
+     * Gain applied to the samples before playback, 0..24 dB. Persisted in the plugin config and
+     * applied live; a soft limiter keeps the output below full scale.
+     */
+    double gainDb() const;
+    void setGainDb(double gainDb);
+
 Q_SIGNALS:
     Q_SCRIPTABLE void streamingChanged(bool streaming);
     Q_SCRIPTABLE void exclusiveModeChanged(bool exclusive);
+    Q_SCRIPTABLE void gainDbChanged(double gainDb);
 
     /**
      * Audio level of the samples played since the previous emission, both in 0..1.
@@ -82,6 +91,7 @@ private:
     std::unique_ptr<AudioOutput> openOutput(int sampleRate, int channels, const QString &wantedDevice, QString *chosenDescription);
     void socketReadyRead();
     void drainPending();
+    void applyGain(qsizetype end);
     void scanLevels(const char *data, qsizetype size);
     void stopStream();
 
@@ -91,6 +101,10 @@ private:
     QByteArray m_pending;
     qsizetype m_primeBytes = 0;
     qsizetype m_maxPendingBytes = 0;
+    // Bytes at the start of m_pending that already had the gain applied (a partial write leaves some behind)
+    qsizetype m_gainedBytes = 0;
+    double m_gainDb = 0.0;
+    double m_linearGain = 1.0;
     qint64 m_bytesPerSecond = 0;
     qint64 m_droppedBytes = 0;
     quint32 m_levelTicks = 0;
